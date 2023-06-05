@@ -50,15 +50,19 @@ public:
     [[noreturn]] void start();
 
 private:
+    WINDOW * search_bar;
+
     WINDOW * top_win;
     std::unordered_map<String, String> top_data;
     int top_y;
 
     WINDOW * table_win;
+    int table_win_height;
     std::vector<std::vector<String>> process_table;
     int table_start_row;
     int table_end_row;
     int highlight;
+
 
     WINDOW * bottom_win;
 

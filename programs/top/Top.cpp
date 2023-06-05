@@ -67,7 +67,7 @@ void init_colors()
 
 bool is_ncurses_mode = false;
 
-const int TABLE_START_Y = 10;
+const int TABLE_START_Y = 8;
 
 [[noreturn]] void handler_sigint(int signal)
 {
@@ -120,9 +120,10 @@ void Top::initNcurses()
     starty = TABLE_START_Y;
     width = COLS;
     height = LINES - 1 - starty;
+    table_win_height = height;
     table_win = newwin(height, width, starty, startx);
     table_start_row = 1; // not counting header
-    table_end_row = LINES - 1;
+    table_end_row = height - 1;
 
     starty = LINES - 1;
     height = 1;
@@ -140,6 +141,20 @@ void resetWin(WINDOW * win)
 }
 
 //-------------------------------//
+
+namespace P
+{ // progress constants
+    enum
+    {
+        READ_PROGRESS = 0,
+        READ_BYTES = 1,
+        WROTE_BYTES = 2,
+        MEMORY_USAGE = 3,
+        MEMORY_USAGE_PERCENT = 4,
+        ELAPSED = 5,
+        KILL = 6
+    };
+}
 
 namespace BYTE
 {
@@ -198,6 +213,11 @@ namespace Q
            {'r', {q_processes_read_sort_inc, q_processes_read_sort_desc}},
            {'w', {q_processes_write_sort_inc, q_processes_write_sort_desc}},
            {'t', {q_processes_elapsed_sort_inc, q_processes_elapsed_sort_desc}}};
+    std::unordered_map<char, int> sort_map_ind = {{'m', P::MEMORY_USAGE}, {'r', P::READ_BYTES}, {'w', P::WROTE_BYTES}, {'t', P::ELAPSED}};
+    //stopped HERE
+
+    int sort_highlight = -1;
+
 
     //-----------------------------------------//
 
@@ -210,6 +230,10 @@ namespace Q
 
     std::vector<MetricAndType> h_top
         = {{"Query", METRIC},
+           {"Merge", METRIC},
+           {"Move", METRIC},
+           {"DelayedInserts", METRIC},
+           {"DistributedFilesToInsert", METRIC},
            {"TCPConnection", METRIC},
            {"HTTPConnection", METRIC},
            {"MaxPartCountForPartition", ASYNC_METRIC},
@@ -217,9 +241,10 @@ namespace Q
            {"TotalRowsOfMergeTreeTables", ASYNC_METRIC},
            {"ReplicasMaxQueueSize", ASYNC_METRIC},
            {"ReplicasSumQueueSize", ASYNC_METRIC},
-           {"DelayedInserts", METRIC},
            {"ReadonlyReplica", METRIC},
-           {"Uptime", ASYNC_METRIC}};
+           {"Uptime", ASYNC_METRIC},
+           {"GlobalThread", METRIC},
+           {"GlobalThreadActive", METRIC}};
 
     String q_top_metrics_base = "SELECT metric, value FROM system.metrics WHERE ";
     String q_top_async_metrics_base = "SELECT metric, value FROM system.asynchronous_metrics WHERE ";
@@ -253,19 +278,6 @@ namespace Q
     }
 }
 
-namespace P
-{ // progress constants
-    enum
-    {
-        READ_PROGRESS = 0,
-        READ_BYTES = 1,
-        WROTE_BYTES = 2,
-        MEMORY_USAGE = 3,
-        MEMORY_USAGE_PERCENT = 4,
-        ELAPSED = 5,
-        KILL = 6
-    };
-}
 
 //--------------GENERAL--------------------//
 
@@ -528,7 +540,20 @@ void Top::printLine(int ind, std::vector<int> & indents, bool is_header)
         }
         else
         {
-            wprintw(table_win, str.data());
+            if (is_header && static_cast<int>(j) == Q::sort_highlight)
+            {
+                wattroff(table_win, COLOR_PAIR(C::BLACK_GREEN));
+
+                wattron(table_win, COLOR_PAIR(C::BLACK_CYAN));
+                wprintw(table_win, str.data());
+                wattroff(table_win, COLOR_PAIR(C::BLACK_CYAN));
+
+                wattron(table_win, COLOR_PAIR(C::BLACK_GREEN));
+            }
+            else
+            {
+                wprintw(table_win, str.data());
+            }
         }
 
         int xdif = (indents[j] + 1 - static_cast<int>(str.size())); // + 1 for a delimeter (a space)
@@ -596,7 +621,7 @@ void Top::printProcessTable()
         highlight = cur_size - 1;
     }
 
-    table_end_row = table_start_row + LINES - 1 - 1; // -2 because we are allowed Lines - 2 space (bcof header)
+    table_end_row = table_start_row + table_win_height - 1; // -2 because we are allowed Lines - 2 space (bcof header)
     if (highlight >= table_end_row)
     { // scrolling down
         ++table_end_row;
@@ -671,6 +696,7 @@ void Top::setSortedQuery(char option)
         this->process_query = Q::sort_map_queries[option].dec;
         *cur_val = -1;
     }
+    Q::sort_highlight = Q::sort_map_ind[option];
 }
 
 
@@ -794,6 +820,7 @@ int Top::makeTop()
         {
             continue;
         }
+        printHelpBar();
         wrefresh(table_win);
         wrefresh(top_win);
 
